@@ -38,7 +38,7 @@ def extract_page(url: str) -> str:
 
 
 def main():
-    api_key = st.secrets["OPENAI_API_KEY"]
+    api_key = os.getenv("OPENAI_API_KEY")
     client = OpenAI(api_key=api_key)
     OUT.mkdir(exist_ok=True)
     paths = []
