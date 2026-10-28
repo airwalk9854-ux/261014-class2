@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.streamlit/secrets.toml
+*.db
+knowledge_web/
+web_education_agent.db
