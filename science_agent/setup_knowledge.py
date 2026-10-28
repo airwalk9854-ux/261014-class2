@@ -1,77 +1,91 @@
-"""웹 URL → 본문 추출 → OpenAI Vector Store 등록 (최초/갱신 시 실행)."""
 from pathlib import Path
-from urllib.parse import urlparse
-import hashlib
-import json
-import re
-import os
 
-import requests
-from bs4 import BeautifulSoup
-import streamlit as st
 from openai import OpenAI
 
-URLS = [
-    "https://www.unesco.org/en/articles/ai-competency-framework-teachers",
-    "https://www.khanacademy.org/khanmigo-for-educators",
-]
-OUT = Path("knowledge_web")
+
+# ---------------------------------------------------------
+# setup_knowledge.py
+#
+# 역할
+# 1. knowledge/ 폴더의 PDF 파일을 찾는다.
+# 2. OpenAI Vector Store를 한 번 생성한다.
+# 3. PDF를 업로드하고 인덱싱이 끝날 때까지 기다린다.
+# 4. 생성된 VECTOR_STORE_ID를 출력한다.
+#
+# 주의
+# 이 파일은 Streamlit 앱을 실행할 때마다 실행하는 파일이 아니다.
+# Knowledge Base를 처음 만들거나 다시 만들 때만 실행한다.
+# ---------------------------------------------------------
 
 
-def extract_page(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.scheme not in ("https", "http") or not parsed.hostname:
-        raise ValueError(f"올바른 HTTP(S) URL이 아닙니다: {url}")
-    response = requests.get(url, timeout=20, headers={"User-Agent": "EducationRAGDemo/1.0"})
-    response.raise_for_status()
-    if "text/html" not in response.headers.get("Content-Type", "").lower():
-        raise ValueError("HTML 페이지가 아닙니다. PDF 등은 별도 처리해야 합니다.")
-    soup = BeautifulSoup(response.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "footer", "header", "form", "noscript"]):
-        tag.decompose()
-    root = soup.find("main") or soup.find("article") or soup.body or soup
-    title = soup.title.get_text(" ", strip=True) if soup.title else url
-    lines = [x.strip() for x in root.get_text("\n", strip=True).splitlines()]
-    body = "\n".join(x for x in lines if x)
-    if len(body) < 200:
-        raise ValueError("추출된 본문이 너무 짧습니다. 동적 페이지 또는 접근 제한 여부를 확인하세요.")
-    return f"제목: {title}\n출처 URL: {url}\n\n{body}\n"
+KNOWLEDGE_DIR = Path("knowledge")
+VECTOR_STORE_NAME = "Science Inquiry Knowledge"
 
 
 def main():
-    api_key = os.getenv("OPENAI_API_KEY")
-    client = OpenAI(api_key=api_key)
-    OUT.mkdir(exist_ok=True)
-    paths = []
-    for url in URLS:
-        try:
-            text = extract_page(url)
-            name = hashlib.sha256(url.encode()).hexdigest()[:12] + ".txt"
-            path = OUT / name
-            path.write_text(text, encoding="utf-8")
-            paths.append(path)
-            print(f"수집 완료: {url} ({len(text)}자)")
-        except (requests.RequestException, ValueError) as exc:
-            print(f"수집 실패: {url} - {exc}")
-    if not paths:
-        raise RuntimeError("수집된 웹페이지가 없습니다. URL과 접근 가능 여부를 확인하세요.")
+    # OPENAI_API_KEY 환경변수를 자동으로 사용한다.
+    client = OpenAI()
 
-    store = client.vector_stores.create(name="Education Web Knowledge")
-    streams = [p.open("rb") for p in paths]
+    # -----------------------------------------------------
+    # Step 1. Knowledge PDF 확인
+    # -----------------------------------------------------
+    pdf_paths = sorted(KNOWLEDGE_DIR.glob("*.pdf"))
+
+    if not pdf_paths:
+        raise FileNotFoundError(
+            "knowledge/ 폴더에서 PDF 파일을 찾지 못했습니다.\n"
+            "예: knowledge/curriculum.pdf"
+        )
+
+    print("업로드할 Knowledge 파일")
+    for path in pdf_paths:
+        print(f" - {path}")
+
+    # -----------------------------------------------------
+    # Step 2. Vector Store 생성
+    # -----------------------------------------------------
+    vector_store = client.vector_stores.create(
+        name=VECTOR_STORE_NAME
+    )
+
+    print("\nVector Store 생성 완료")
+    print(f"ID: {vector_store.id}")
+
+    # -----------------------------------------------------
+    # Step 3. PDF 업로드 + 인덱싱 완료까지 대기
+    # -----------------------------------------------------
+    streams = [open(path, "rb") for path in pdf_paths]
+
     try:
         batch = client.vector_stores.file_batches.upload_and_poll(
-            vector_store_id=store.id, files=streams
+            vector_store_id=vector_store.id,
+            files=streams,
         )
     finally:
         for stream in streams:
             stream.close()
-    print("인덱싱 상태:", batch.status)
-    print("파일 상태:", batch.file_counts)
-    if batch.status != "completed":
-        raise RuntimeError("인덱싱이 완료되지 않았습니다. 파일 상태를 확인하세요.")
-    print("\nsecrets.toml에 다음 값을 추가/수정하세요:")
-    print(f'VECTOR_STORE_ID = "{store.id}"')
-    print("기존 Vector Store는 자동 삭제되지 않습니다. 반복 실행 시 새 저장소와 비용이 발생할 수 있습니다.")
+
+    # -----------------------------------------------------
+    # Step 4. 결과 확인
+    # -----------------------------------------------------
+    print("\nKnowledge 인덱싱 결과")
+    print(f"status: {batch.status}")
+
+    if hasattr(batch, "file_counts"):
+        print(f"file_counts: {batch.file_counts}")
+
+    print("\n--------------------------------------------")
+    print("다음 값을 VECTOR_STORE_ID로 설정하세요.")
+    print("--------------------------------------------")
+    print(vector_store.id)
+    print("--------------------------------------------")
+
+    print(
+        "\nCodespaces 터미널에서 임시로 테스트하려면:\n"
+        f'export VECTOR_STORE_ID="{vector_store.id}"\n\n'
+        "그 다음:\n"
+        "streamlit run app.py"
+    )
 
 
 if __name__ == "__main__":
