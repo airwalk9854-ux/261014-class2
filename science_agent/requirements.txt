@@ -1,4 +1,3 @@
-openai-agents
-openai
-streamlit
-uv
+streamlit>=1.35
+openai-agents>=0.2
+openai>=1.75

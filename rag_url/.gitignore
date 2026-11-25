@@ -4,3 +4,4 @@ __pycache__/
 *.db
 knowledge_web/
 web_education_agent.db
+/science_agent/.streamlit/secrets.toml

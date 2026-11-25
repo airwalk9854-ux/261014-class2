@@ -8,6 +8,7 @@ from agents import Agent, Runner, FileSearchTool, SQLiteSession, set_default_ope
 st.set_page_config(page_title="Week 10 Multi-Agent", page_icon="🧪")
 st.title("10주차 | Multi-Agent Science Inquiry Coach")
 
+
 try:
     set_default_openai_key(st.secrets["OPENAI_API_KEY"])
     vector_store_id = st.secrets["VECTOR_STORE_ID"]
